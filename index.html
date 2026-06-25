@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Assistant</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #f0f4f8;
+      color: #1a1a2e;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    .container { max-width: 720px; margin: 0 auto; padding: 2rem 1rem; }
+    header { text-align: center; margin-bottom: 2rem; }
+    header h1 { font-size: 1.75rem; color: #16213e; }
+    header p { color: #555; margin-top: 0.25rem; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      margin-bottom: 1.25rem;
+    }
+    label { display: block; font-weight: 600; margin-bottom: 0.35rem; font-size: 0.9rem; }
+    select, textarea {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid #ccd;
+      border-radius: 8px;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      font-family: inherit;
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    .prompt-desc {
+      font-size: 0.85rem;
+      color: #666;
+      margin: -0.5rem 0 1rem;
+      font-style: italic;
+    }
+    button {
+      background: #4361ee;
+      color: #fff;
+      border: none;
+      padding: 0.7rem 1.5rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      width: 100%;
+    }
+    button:hover { background: #3a56d4; }
+    button:disabled { background: #99a; cursor: not-allowed; }
+    .btn-secondary { background: #6c757d; margin-top: 0.5rem; }
+    .btn-secondary:hover { background: #5a6268; }
+    .btn-yes { background: #2d6a4f; width: auto; margin-right: 0.5rem; }
+    .btn-no { background: #9d0208; width: auto; }
+    #response-box {
+      display: none;
+      white-space: pre-wrap;
+      background: #f8f9fa;
+      border-left: 4px solid #4361ee;
+      padding: 1rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1rem;
+    }
+    #feedback-section { display: none; }
+    #tips-list { margin-top: 0.75rem; padding-left: 1.25rem; color: #555; }
+    .stats {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      font-size: 0.9rem;
+      color: #444;
+    }
+    .stat-item { background: #e8eef7; padding: 0.5rem 0.75rem; border-radius: 6px; }
+    .error { color: #9d0208; margin-bottom: 0.75rem; }
+    .loading { color: #666; font-style: italic; }
+    footer { text-align: center; font-size: 0.8rem; color: #888; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>AI Assistant</h1>
+      <p>Choose a function, pick a prompt style, and get AI-powered responses.</p>
+    </header>
+
+    <div class="card stats" id="stats-bar">
+      <span class="stat-item">Rated: <strong id="stat-total">{{ stats.total }}</strong></span>
+      <span class="stat-item">Helpful: <strong id="stat-helpful">{{ stats.helpful }}</strong></span>
+      <span class="stat-item">Not helpful: <strong id="stat-not-helpful">{{ stats.not_helpful }}</strong></span>
+    </div>
+
+    <div class="card">
+      <form id="ask-form">
+        <label for="function">Function</label>
+        <select id="function" name="function" required>
+          {% for key, cfg in functions.items() %}
+          <option value="{{ key }}">{{ cfg.label }}</option>
+          {% endfor %}
+        </select>
+
+        <label for="prompt_style">Prompt Style</label>
+        <select id="prompt_style" name="prompt_style" required></select>
+        <p class="prompt-desc" id="prompt-desc"></p>
+
+        <label for="user_input">Your Input</label>
+        <textarea id="user_input" name="user_input" placeholder="" required></textarea>
+
+        <div id="form-error" class="error" style="display:none;"></div>
+        <button type="submit" id="submit-btn">Get Response</button>
+      </form>
+    </div>
+
+    <div class="card" id="result-card" style="display:none;">
+      <label>Response</label>
+      <div id="response-box"></div>
+
+      <div id="feedback-section">
+        <label>Was this response helpful?</label>
+        <div style="margin-top:0.5rem;">
+          <button type="button" class="btn-yes" id="btn-yes">Yes</button>
+          <button type="button" class="btn-no" id="btn-no">No</button>
+        </div>
+        <div id="comment-area" style="display:none; margin-top:0.75rem;">
+          <label for="comment">What could be improved? (optional)</label>
+          <textarea id="comment" rows="2" placeholder="Optional feedback..."></textarea>
+          <button type="button" class="btn-secondary" id="btn-submit-comment">Submit Feedback</button>
+        </div>
+        <ul id="tips-list"></ul>
+        <p id="feedback-thanks" style="display:none; color:#2d6a4f; margin-top:0.5rem;">Thank you for your feedback!</p>
+      </div>
+    </div>
+
+    <footer>CLI alternative: python ai_assistant.py</footer>
+  </div>
+
+  <script>
+    const FUNCTIONS = {{ functions | tojson }};
+    const funcSelect = document.getElementById("function");
+    const promptSelect = document.getElementById("prompt_style");
+    const promptDesc = document.getElementById("prompt-desc");
+    const userInput = document.getElementById("user_input");
+    const askForm = document.getElementById("ask-form");
+    const resultCard = document.getElementById("result-card");
+    const responseBox = document.getElementById("response-box");
+    const feedbackSection = document.getElementById("feedback-section");
+    const formError = document.getElementById("form-error");
+
+    let lastResult = {};
+
+    function updatePromptOptions() {
+      const key = funcSelect.value;
+      const cfg = FUNCTIONS[key];
+      promptSelect.innerHTML = "";
+      for (const [id, p] of Object.entries(cfg.prompts)) {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = p.name + " — " + p.description;
+        promptSelect.appendChild(opt);
+      }
+      promptDesc.textContent = cfg.prompts["1"].description;
+      userInput.placeholder = cfg.web_placeholder;
+      promptSelect.onchange = () => {
+        promptDesc.textContent = cfg.prompts[promptSelect.value].description;
+      };
+    }
+
+    funcSelect.addEventListener("change", updatePromptOptions);
+    updatePromptOptions();
+
+    askForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      formError.style.display = "none";
+      const btn = document.getElementById("submit-btn");
+      btn.disabled = true;
+      btn.textContent = "Thinking...";
+      responseBox.style.display = "block";
+      responseBox.textContent = "Waiting for AI response...";
+      resultCard.style.display = "block";
+      feedbackSection.style.display = "none";
+      document.getElementById("feedback-thanks").style.display = "none";
+      document.getElementById("tips-list").innerHTML = "";
+
+      try {
+        const res = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            function: funcSelect.value,
+            prompt_style: promptSelect.value,
+            user_input: userInput.value,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Request failed");
+        lastResult = data;
+        responseBox.textContent = data.response;
+        feedbackSection.style.display = "block";
+        document.getElementById("comment-area").style.display = "none";
+      } catch (err) {
+        responseBox.textContent = "";
+        const msg = err.message === "Failed to fetch"
+          ? "Cannot reach server. Run: python web_app.py (keep that window open)"
+          : err.message;
+        formError.textContent = msg;
+        formError.style.display = "block";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Get Response";
+      }
+    });
+
+    async function sendFeedback(helpful) {
+      const comment = helpful === "no" ? document.getElementById("comment").value : "";
+      const res = await fetch("/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...lastResult,
+          helpful,
+          comment,
+        }),
+      });
+      const data = await res.json();
+      document.getElementById("stat-total").textContent = data.stats.total;
+      document.getElementById("stat-helpful").textContent = data.stats.helpful;
+      document.getElementById("stat-not-helpful").textContent = data.stats.not_helpful;
+      document.getElementById("feedback-thanks").style.display = "block";
+      document.getElementById("comment-area").style.display = "none";
+      const tipsList = document.getElementById("tips-list");
+      tipsList.innerHTML = "";
+      if (data.tips && data.tips.length) {
+        data.tips.forEach(t => {
+          const li = document.createElement("li");
+          li.textContent = t;
+          tipsList.appendChild(li);
+        });
+      }
+    }
+
+    document.getElementById("btn-yes").onclick = () => sendFeedback("yes");
+    document.getElementById("btn-no").onclick = () => {
+      document.getElementById("comment-area").style.display = "block";
+    };
+    document.getElementById("btn-submit-comment").onclick = () => sendFeedback("no");
+  </script>
+</body>
+</html>
